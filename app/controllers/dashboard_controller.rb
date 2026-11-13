@@ -1,10 +1,9 @@
 class DashboardController < ApplicationController
   def index
     scope = Assessment.where(company_id: current_company.id)
-    # legacy: fixed in #7 (exact status match; "to" date means midnight so the end day is excluded)
-    scope = scope.where(status: params[:status]) if params[:status].present?
-    scope = scope.where("created_at >= ?", params[:from]) if params[:from].present?
-    scope = scope.where("created_at <= ?", params[:to]) if params[:to].present?
+    scope = scope.with_status(params[:status]) if params[:status].present?
+    scope = scope.where("created_at >= ?", Date.parse(params[:from]).beginning_of_day) if params[:from].present?
+    scope = scope.where("created_at < ?", (Date.parse(params[:to]) + 1.day).beginning_of_day) if params[:to].present?
     # legacy: fixed in #10 (logs params)
     Rails.logger.info "params: #{params.inspect}"
     # legacy: fixed in #14 (no pagination, counts/average in Ruby)
