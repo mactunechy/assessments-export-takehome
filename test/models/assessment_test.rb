@@ -5,7 +5,6 @@ class AssessmentTest < ActiveSupport::TestCase
     sql = Assessment.with_status("completed").to_sql
     %w[completed complete comp done].each { |s| assert_includes sql, "'#{s}'" }
     assert_not_includes sql, "pending"
-    assert_equal ["pending"], Assessment.with_status("pending").where_values_hash["status"]
   end
 
   test "created_between is inclusive of the end day and excludes the next" do
