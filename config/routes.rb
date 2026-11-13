@@ -11,5 +11,7 @@ Rails.application.routes.draw do
 
   # Defines the root path route ("/")
   root "dashboard#index"
+  get "dashboard", to: "dashboard#index"
+  get "export", to: "exports#index"
   resource :session, only: %i[new create destroy]
 end
