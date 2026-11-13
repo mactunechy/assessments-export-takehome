@@ -7,6 +7,41 @@ class AssessmentTest < ActiveSupport::TestCase
     assert_not_includes sql, "pending"
   end
 
+  def build(status) = Assessment.new(company: companies(:one), employee: employees(:one), status: status)
+
+  test "create canonicalizes case, whitespace and aliases" do
+    assert_equal "completed", build(" DONE ").tap(&:save!).status
+    assert_equal "in_progress", build("In_Progress").tap(&:save!).status
+  end
+
+  test "create with nil or blank status stores pending" do
+    [nil, "", "  "].each { |s| assert_equal "pending", build(s).tap(&:save!).reload.status }
+    assert_equal "pending", Assessment.new(company: companies(:one), employee: employees(:one)).tap(&:save!).status
+  end
+
+  test "unknown statuses fail validation" do
+    %w[foo n/a].each do |s|
+      a = build(s)
+      assert_not a.valid?
+      assert a.errors.of_kind?(:status, :inclusion)
+    end
+    assert_raises(ActiveRecord::RecordInvalid) { build("foo").save! }
+  end
+
+  test "any save of a legacy row self-heals the status" do
+    a = build("pending").tap(&:save!)
+    a.update_column(:status, "comp")
+    assert_equal "comp", Assessment.find(a.id).status # reads keep working
+    a = Assessment.find(a.id)
+    a.update!(employee_email: "x@example.test")
+    assert_equal "completed", a.reload.status
+  end
+
+  test "update to an unknown status fails" do
+    a = build("pending").tap(&:save!)
+    assert_not a.update(status: "n/a")
+  end
+
   test "created_between is inclusive of the end day and excludes the next" do
     d = Date.new(2024, 3, 5)
     sql = Assessment.created_between(d, d).to_sql
