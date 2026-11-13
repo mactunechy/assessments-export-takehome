@@ -16,10 +16,15 @@
   <input type="date" name="to" value="<%= params[:to] %>">
   <button>Filter</button>
 </form>
-<p>Total <%= @all.size %> · Completed <%= @completed %> · Pending <%= @pending %> · Average score <%= @average %></p>
+<p>Total <%= @total %> · Completed <%= @counts["completed"] %> · Pending <%= @counts["pending"] %></p>
 <table>
   <tr><th>Employee</th><th>Status</th><th>Score</th><th>Created</th></tr>
-  <% @all.each do |a| %>
+  <% @assessments.each do |a| %>
     <tr><td><%= a.employee.name %></td><td><%= a.status %></td><td><%= a.score %></td><td><%= a.created_at.to_date %></td></tr>
   <% end %>
 </table>
+<p>
+  <%= link_to "Prev", params.permit(:status, :from, :to).merge(page: @page - 1) if @page > 1 %>
+  Page <%= @page %>
+  <%= link_to "Next", params.permit(:status, :from, :to).merge(page: @page + 1) if @has_next %>
+</p>
