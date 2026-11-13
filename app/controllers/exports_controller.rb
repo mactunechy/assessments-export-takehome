@@ -11,7 +11,9 @@ class ExportsController < ApplicationController
     scope = current_company.assessments.created_between(from, to)
     scope = scope.with_status(status) if status
     send_stream(filename: "assessments.csv", type: "text/csv", disposition: "attachment") do |stream|
-      AssessmentCsv.new(scope).each_line { |line| stream.write(line) }
+      lines = 0
+      AssessmentCsv.new(scope).each_line { |line| stream.write(line); lines += 1 }
+      logger.info "export company=#{current_company.id} rows=#{lines - 1} status=#{status || 'all'} from=#{from} to=#{to}"
     end
   end
 

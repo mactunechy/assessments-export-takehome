@@ -26,6 +26,17 @@ class ExportsControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/@|FREETEXT/, response.body)
   end
 
+  test "logs one summary line with counts only" do
+    out = StringIO.new
+    ActionController::Base.logger = Logger.new(out)
+    get export_path, params: { from: "2025-03-01", to: "2025-03-05", status: "completed" }
+    assert_equal 1, out.string.scan("export company=").size
+    assert_includes out.string, "rows=2 status=completed from=2025-03-01 to=2025-03-05"
+    assert_no_match(/@|FREETEXT/, out.string)
+  ensure
+    ActionController::Base.logger = Rails.logger
+  end
+
   test "invalid params give 422" do
     [{ from: "bad", to: "2025-01-01" }, { from: "2025-01-01" }, { from: "2025-02-01", to: "2025-01-01" },
      { from: "2025-01-01", to: "2025-02-01", status: "bogus" }].each do |p|
