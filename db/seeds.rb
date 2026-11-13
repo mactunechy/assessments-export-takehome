@@ -46,6 +46,8 @@ ActiveRecord::Base.transaction do
     FROM employees
   SQL
 
+  # Raw SQL on purpose: this bypasses the model so the seed data contains the messy legacy
+  # statuses (complete/comp/done, NULL, '', 'n/a') that the app and backfill must handle.
   q.(<<~SQL)
     INSERT INTO assessments (company_id, employee_id, employee_email, status, responses_json, created_at, updated_at)
     SELECT p.id, e.id, e.email,
