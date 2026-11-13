@@ -1,6 +1,15 @@
 <h1><%= current_company.name %> dashboard</h1>
 <%= button_to "Log out", session_path, method: :delete %>
-<p><%= link_to "Export CSV", export_path %></p>
+<form id="export-form">
+  <input type="date" name="from" required>
+  <input type="date" name="to" required>
+  <select name="status">
+    <option value="">Any</option>
+    <% Assessment::STATUSES.each do |s| %><option value="<%= s %>"><%= s.humanize %></option><% end %>
+  </select>
+  <button>Export CSV</button>
+  <span id="export-status" role="status" aria-live="polite"></span>
+</form>
 <form method="get">
   <input name="status" placeholder="status" value="<%= params[:status] %>">
   <input type="date" name="from" value="<%= params[:from] %>">
