@@ -20,7 +20,7 @@
 <table>
   <tr><th>Employee</th><th>Status</th><th>Score</th><th>Created</th></tr>
   <% @assessments.each do |a| %>
-    <tr><td><%= a.employee.name %></td><td><%= a.status %></td><td><%= a.score %></td><td><%= a.created_at.to_date %></td></tr>
+    <tr><td><%= a.employee.name %></td><td><%= a.status %></td><td><%= score_label(a) %></td><td><%= a.created_at.to_date %></td></tr>
   <% end %>
 </table>
 <p>
