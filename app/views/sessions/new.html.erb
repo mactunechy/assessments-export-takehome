@@ -1,0 +1,5 @@
+<h1>Demo login</h1>
+<p>Demo only: pick an admin to log in as.</p>
+<% @admins.each do |admin| %>
+  <%= button_to "Log in as #{admin.company.name} admin ##{admin.id}", session_path(company_admin_id: admin.id) %>
+<% end %>
