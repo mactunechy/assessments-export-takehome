@@ -89,4 +89,4 @@ The baseline takes several minutes (one request is about a minute); the current 
 - Demo auth only: the login page lists every admin and needs no password.
 - All data is fake (`example.test` emails, generated answers). Do not load real data.
 - The TypeScript is not built by Rails: after changing `.ts` files run `npm run build`.
-- The seed deliberately writes messy legacy statuses (`complete`, `comp`, `done`, NULL, empty, `n/a`) with raw SQL; see SOLUTION.md.
+- The seed deliberately writes messy legacy statuses (`complete`, `comp`, `done`, NULL, empty, `n/a`) with raw SQL; this is the data the status normalization plan handles.
