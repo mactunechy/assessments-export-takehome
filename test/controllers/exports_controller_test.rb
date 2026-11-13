@@ -37,6 +37,13 @@ class ExportsControllerTest < ActionDispatch::IntegrationTest
     ActionController::Base.logger = Rails.logger
   end
 
+  test "another company's id in any param never returns its rows" do
+    get export_path, params: { from: "2025-03-01", to: "2025-03-31", company_id: companies(:two).id, company: { id: companies(:two).id } }
+    ids = response.body.lines.drop(1).map { |l| l.split(",").first.to_i }
+    assert_equal @mine.map(&:id).sort, ids.sort
+    assert_not_includes ids, @theirs.id
+  end
+
   test "invalid params give 422" do
     [{ from: "bad", to: "2025-01-01" }, { from: "2025-01-01" }, { from: "2025-02-01", to: "2025-01-01" },
      { from: "2025-01-01", to: "2025-02-01", status: "bogus" }].each do |p|
