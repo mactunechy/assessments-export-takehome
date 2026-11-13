@@ -1,0 +1,15 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  company: one
+  employee: one
+  employee_email: MyString
+  status: MyString
+  responses_json: 
+
+two:
+  company: two
+  employee: two
+  employee_email: MyString
+  status: MyString
+  responses_json: 
