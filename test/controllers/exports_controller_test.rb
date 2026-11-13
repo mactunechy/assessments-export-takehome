@@ -21,8 +21,8 @@ class ExportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_match "attachment", response.headers["Content-Disposition"]
     lines = response.body.lines.map(&:chomp)
-    assert_equal "assessment_id,created_on,status,neck_pain,back_pain,wrist_pain,eye_strain,chair_comfort", lines.first
-    assert_equal ["#{@mine[0].id},2025-03-01,completed,4,,,,", "#{@mine[1].id},2025-03-05,completed,,,,,"], lines.drop(1)
+    assert_equal "assessment_id,created_on,status,neck_pain,back_pain,wrist_pain,eye_strain,chair_comfort,score", lines.first
+    assert_equal ["#{@mine[0].id},2025-03-01,completed,4,,,,,75", "#{@mine[1].id},2025-03-05,completed,,,,,,"], lines.drop(1)
     assert_no_match(/@|FREETEXT/, response.body)
   end
 

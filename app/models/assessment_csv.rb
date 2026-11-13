@@ -3,14 +3,15 @@ require "csv"
 # Yields CSV lines for one company's assessments. Allowlist only; fails closed on anything unexpected.
 class AssessmentCsv
   EXPORTABLE_QUESTIONS = %w[neck_pain back_pain wrist_pain eye_strain chair_comfort].freeze
-  HEADER = (%w[assessment_id created_on status] + EXPORTABLE_QUESTIONS).freeze
+  HEADER = (%w[assessment_id created_on status] + EXPORTABLE_QUESTIONS + %w[score]).freeze
 
+  # score is empty (not 0) when there is nothing to score.
   def initialize(scope) = @scope = scope
 
   def each_line
     yield CSV.generate_line(HEADER)
     @scope.select(:id, :created_at, :status, :responses_json).find_each do |a|
-      yield CSV.generate_line([a.id, a.created_at.to_date.iso8601, canonical(a.status), *scales(a.responses_json)])
+      yield CSV.generate_line([a.id, a.created_at.to_date.iso8601, canonical(a.status), *scales(a.responses_json), a.score])
     end
   end
 
