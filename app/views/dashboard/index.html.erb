@@ -1,6 +1,6 @@
 <h1><%= current_company.name %> dashboard</h1>
 <%= button_to "Log out", session_path, method: :delete %>
-<p><%= link_to "Export CSV", export_path(company_id: current_company.id) %></p>
+<p><%= link_to "Export CSV", export_path %></p>
 <form method="get">
   <input name="status" placeholder="status" value="<%= params[:status] %>">
   <input type="date" name="from" value="<%= params[:from] %>">
