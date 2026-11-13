@@ -5,6 +5,12 @@ class Assessment < ApplicationRecord
   STATUSES = %w[pending in_progress completed needs_follow_up archived].freeze
   LEGACY_ALIASES = { "complete" => "completed", "comp" => "completed", "done" => "completed" }.freeze
 
+  # Not `enum` (reads unknown legacy strings as nil) and not `normalizes :status`
+  # (it also rewrites where() values, which would break the alias-expanded with_status filter).
+  attribute :status, :string, default: "pending"
+  before_validation :canonicalize_status
+  validates :status, inclusion: { in: STATUSES }
+
   scope :with_status, ->(canonical) {
     where(status: [canonical, *LEGACY_ALIASES.select { |_, v| v == canonical }.keys])
   }
@@ -19,5 +25,13 @@ class Assessment < ApplicationRecord
     answers = responses_json.is_a?(Hash) ? responses_json["answers"] : nil
     values = Array(answers).grep(Hash).select { |a| a["type"] == "scale" && a["value"].is_a?(Integer) && a["value"].between?(1, 5) }.map { |a| a["value"] }
     ((values.sum.fdiv(values.size) - 1) / 4.0 * 100).round if values.any?
+  end
+
+  private
+
+  # Runs on every save, so any save of a legacy row (e.g. "comp") self-heals it.
+  def canonicalize_status
+    s = status.to_s.strip.downcase
+    self.status = s.empty? ? "pending" : LEGACY_ALIASES.fetch(s, s)
   end
 end

@@ -6,7 +6,7 @@ class DashboardControllerTest < ActionDispatch::IntegrationTest
     admin = CompanyAdmin.create!(company: co, email: "a@example.test")
     mk = ->(c, status, at) {
       e = Employee.create!(company: c, email: "e#{rand(1e9)}@example.test", name: "Emp")
-      Assessment.create!(company: c, employee: e, status: status, created_at: at, responses_json: { "answers" => [{ "value" => 4 }] })
+      Assessment.create!(company: c, employee: e, status: status, created_at: at, responses_json: { "answers" => [{ "value" => 4 }] }).tap { |a| a.update_column(:status, status) } # raw write keeps legacy values
     }
     %w[completed comp done pending].each_with_index { |s, i| mk.(co, s, "2025-03-0#{i + 1} 10:00") }
     mk.(companies(:two), "completed", "2025-03-02")

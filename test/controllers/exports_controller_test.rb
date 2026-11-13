@@ -6,7 +6,7 @@ class ExportsControllerTest < ActionDispatch::IntegrationTest
     other = companies(:two)
     emp = ->(c) { Employee.create!(company: c, email: "e#{c.id}@example.test") }
     mk = ->(c, status, at, json = { "answers" => [] }) {
-      Assessment.create!(company: c, employee: emp.(c), employee_email: "secret@example.test", status: status, created_at: at, responses_json: json)
+      Assessment.create!(company: c, employee: emp.(c), employee_email: "secret@example.test", status: status, created_at: at, responses_json: json).tap { |a| a.update_column(:status, status) } # raw write keeps legacy values
     }
     json = { "answers" => [{ "q" => "neck_pain", "type" => "scale", "value" => 4 }, { "q" => "notes", "type" => "text", "value" => "FREETEXT" },
                            { "q" => "back_pain", "type" => "scale", "value" => "n/a" }] }
