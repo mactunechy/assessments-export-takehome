@@ -1,6 +1,72 @@
 # Solution
 
-Sections for the other tasks are added by later issues.
+Design notes and trade-offs for the three tasks. How to run the app locally is in [README.md](README.md); it is not repeated here.
+
+## Scope and approach
+
+The repo is a small imitation of a legacy Rails assessments app (Rails 8.1, PostgreSQL, TypeScript compiled with `tsc` only). A `legacy-baseline` git tag holds the app with its defects planted on purpose; every fix is a small diff against that tag, and the dashboard numbers below were measured against it. The rule throughout was the smallest change that works: no gems beyond Rails, no background-job system, no frontend framework or bundler.
+
+**Deliberately not done:** an async export (job, storage, polling); a stored score column; a company-level average score (dropped from the dashboard summary, see Task 2); Postgres row-level security; real authentication; running any Task 3 step against a shared or production database; dropping `legacy_status`; any extra export filter beyond date range and status. The seed data is set-based fake data (generated in bulk with SQL), not a realistic sample.
+
+## Tenancy and data handling
+
+- **Tenant comes from the session, never from a parameter.** `current_company` is `current_admin.company`, where the admin is looked up from `session[:company_admin_id]`. Controllers query `current_company.assessments`; nothing reads `params[:company_id]`. A regression test passes another company's id in several params and asserts none of its rows come back. Logged-out requests are redirected and get no data.
+- **The login is a demo stand-in:** you pick an admin from a list, with no passwords. It is marked `ponytail:` in `ApplicationController` and must be replaced by real authentication before anything real runs on it.
+- **Export is an allowlist, and it fails closed.** The CSV has a fixed header: `assessment_id`, `created_on` (date only), `status` (canonical), five allowlisted scale questions (`EXPORTABLE_QUESTIONS`), and `score`. Employee name, email and id, the raw `responses_json`, every free-text answer and any question not on the list are never selected into the file. Non-integer or unexpected answers become blank cells; a status that is not canonical becomes blank rather than leaking through.
+- **Logging rules:** nothing logs params, response JSON, emails or names. `filter_parameters` covers `:email`, `:responses`, `:answers`, `:notes` (partial match, so `responses_json` and `employee_email` too) for framework logging. The export writes one summary line after it finishes, with ids and counts only (`export company=<id> rows=<n> status=<s> from=<d> to=<d>`). Production log level stays `info`. Tests assert the export and a filtered dashboard request log no emails, names or answer text.
+- **Isolation is enforced in application code only.** A new query that forgets `current_company` would leak; see "Known limits".
+
+## Task 1: Company-scoped CSV export
+
+**Streaming, not async.** The export uses `ActionController::Live` and `send_stream`, reading the company's rows with `find_each` (batches of 1,000) and writing each CSV line as it is produced. The header row is sent immediately.
+
+Why: no file or job at rest means no storage, no queue, no retention or cleanup question, and no second copy of health data. It is the least code that works, and the CSV is produced by a plain Ruby class (`AssessmentCsv`) that yields lines, so it can move into a job later without a rewrite.
+
+Costs (stated, not hidden):
+- A streaming request holds a Puma thread **and** a database connection for the whole export. Several long exports at once can starve normal requests or the connection pool.
+- A failure partway through the stream cannot change the status: the client has already received a `200`, so it ends up with a **truncated file and no error status**. The browser UI cannot detect this. There is no row-count trailer or checksum.
+- No resume, no cancel on the server side beyond the client disconnecting, no cap on rows.
+- The behaviour of proxies and router timeouts was not tested; sending the header at once is intended to keep idle-timeout limits from firing, but this was not verified against any real router.
+
+**Ceiling and upgrade trigger.** The ceiling was not measured: the export was exercised for correctness (tenant, filters, columns, streaming starts at once), not load-tested. Move to an async export (job writes the file, the admin is notified or polls, the file expires) when any of these appears: exports routinely run long enough to hit a router or client timeout, concurrent exports visibly use up threads or the connection pool, or truncated downloads become a support problem.
+
+**Index choice.** One index was added: `(company_id, id)`, created `CONCURRENTLY` (`disable_ddl_transaction!`, `if_not_exists`) so it does not block writes. It serves the per-company scan that `find_each` (ordered by `id`, in batches) does. No `created_at` index was added: for the date range filter Postgres reads the company's rows through this index and filters, and the dashboard evidence below shows that is cheap enough at 100k rows per company. Revisit if a single company grows far beyond that.
+
+**TypeScript UI note.** `app/frontend/export.ts` is one file, no imports, no `any`, compiled by `tsc` only (the build output is gitignored). On submit it disables the button, calls `/export` with only `from`, `to` and `status`, shows "Preparing...", then a running byte count, builds a `Blob` and triggers a download, then shows "Done". Server errors (422 and similar) are shown as text, and the button is re-enabled in every case. Because it buffers the whole file in the browser before saving, very large exports are bounded by browser memory; that is acceptable at this scale and part of why async is the next step. It is verified by `npm run build` (type-check) only, with no automated frontend tests.
+
+## Task 2: Dashboard performance and score
+
+**Root causes found (evidence from the `legacy-baseline` measurements in `docs/measurements.md`):**
+1. No pagination: `@all = scope.to_a` loaded all 100,000 rows of the largest tenant into Ruby (the main SQL itself took only about 57 ms).
+2. Per-row work in the view: the employee was queried per row (an N+1: 2,006 uncached queries, Rails reported 100,003 including cached ones) and the score was computed per row, producing about 55 million allocations and about 12 s of GC.
+3. Counts and the average score were computed in Ruby over all rows instead of in SQL.
+4. Time split: of about 59 s per request, about 56 s was in views and about 2 s in ActiveRecord. The database was not the problem.
+
+**The one improvement:** bound the work to the page. 50 rows per page with `limit`/`offset` and Prev/Next links (no gem), `includes(:employee)` (one `IN` query), selecting only displayed columns, and per-status counts with a SQL `GROUP BY status` mapped through the legacy aliases so old spellings count under their canonical status. It was chosen because the baseline showed the cost scaled with company size in Ruby and in the view, so bounding the page attacks the dominant cost directly. The only remaining cost that scales with company size is the one aggregate query. The all-rows **average score was removed** from the summary: it cannot be computed cheaply from JSON at scale (it would need a persisted score).
+
+**Before / after** (copied from `docs/measurements.md`; `GET /dashboard` as BigCo's first admin, 100,000 assessments, median of 5 warm runs after 1 discarded cold run, Rails development mode on a laptop with local PostgreSQL 17; method, environment and re-run commands are in that file):
+
+| Metric | Before (median) | After (median) | Change |
+|---|---|---|---|
+| SQL queries | 2006 | 5 | -99.8% |
+| Total | 59,382 ms | 59 ms | ~1000x faster |
+| ActiveRecord | 2,144 ms | 51.0 ms | -98% |
+| Allocations | 54,715,435 | 7,470 | ~7,300x fewer |
+| curl `time_total` | 59.5 s | 0.062 s | ~960x faster |
+
+How it was measured: `script/measure_dashboard.sh` boots the server, logs in as BigCo's first admin, requests `/dashboard` 6 times, discards the cold run, and reads query counts and allocations from Rails' own notification events. Timings vary about +/-20% run to run; query count and allocations are stable. These are development-mode numbers on one machine, not production figures; the ratios are what matters. Before and after ran against the same seeded database.
+
+**Index decision:** none added for the dashboard. `EXPLAIN (ANALYZE, BUFFERS)` shows both queries already use `index_assessments_on_company_id` (about 7,200 buffers, all cache hits, roughly 25-60 ms each). A `(company_id, created_at DESC, id DESC)` index would only save the page query's top-N sort (about 25 ms) while the count still visits every company row, so it was not worth the write cost on the largest table.
+
+**Score rules.** `Assessment#score` is the mean of valid scale answers only (integers 1 to 5), mapped to 0-100 as `((mean - 1) / 4.0 * 100).round`. Text, choice, `nil`, `"n/a"`, out-of-range and non-integer values are ignored. It returns `nil` only when there is nothing to score, and there is no `rescue nil`. The dashboard shows "Not scored" in that case (never blank); the CSV `score` cell is empty (not 0) in that case. Tests cover: all fives is 100 and all ones is 0, mixed values, text/`n/a`/`nil` ignored, and empty or malformed answers give `nil`. The score is computed per visible row and per streamed row; persisting it is the trigger described in "Next steps".
+
+**Log changes:** the planted `params.inspect` and raw-responses log lines were deleted from the dashboard and export paths; parameter filtering was extended (see "Tenancy and data handling"). A test asserts a filtered dashboard request logs no emails, names or answer text.
+
+**Also changed in this area:** filters now go through shared scopes used by both the dashboard and the export. `with_status` expands legacy aliases (`completed` matches `comp`/`done`/`complete`), and `created_between` is a half-open range over whole days (UTC) so the end day is inclusive; the legacy version compared against midnight and dropped the last day.
+
+## Task 3 summary
+
+Status is canonicalized on write in the model (strip, downcase, alias `complete`/`comp`/`done` to `completed`, blank to `pending`, then validated against the five canonical statuses). A nullable `legacy_status` column preserves the original of any row the backfill changes. Reads already tolerate legacy values. A batched, throttled, resumable `assessments:backfill_status` task (dry run by default) and two `NOT VALID` / `VALIDATE` constraint migrations were written. **None of the backfill or constraint steps has been run against a shared or production database** (the model's canonicalization is covered by tests; the backfill task and the migrations have no automated tests). The full ordered release plan, commands, rollback ladder and the list of unverified Heroku details are in the next section, "Task 3: Status normalization: release and rollback".
 
 ## Task 3: Status normalization: release and rollback
 
@@ -118,3 +184,22 @@ The CHECK includes `status IS NOT NULL` because a bare `CHECK (status IN (...))`
 Heroku Dev Center: Release Phase; Heroku Postgres Backups; Logical Backups of a large database; Continuous Protection; Rollback; Fork; Releases; One-Off Dynos / Working with One-Off Dynos; Managing Heroku Postgres Using the CLI; Heroku CLI command reference (command names and usage lines for `pg:backups:*`, `pg:info`, `pg:locks`, `pg:blocking`, `pg:diagnose`, `pg:promote`, `pg:wait`, `pg:copy`, `releases`, `releases:rollback`, `run:detached`). PostgreSQL: `ALTER TABLE` and "Explicit Locking" (current).
 
 **Unverified, check in the rehearsal:** quoting the bracketed rake argument through `heroku run:detached`; passing `PGOPTIONS` through `heroku run`; exact output of `pg:backups:info` (the docs say only that it shows status and size); retention length for the rollback window on your plan (read it from `pg:info`); `pg:vacuum-stats`, `pg:bloat` and `pg:outliers` usage lines (the CLI reference was only read for the commands named above).
+
+## Trade-offs, known limits and next steps
+
+**Known limits (stated honestly):**
+- **Tenant isolation is application-level only.** Every query must go through `current_company`; there is no database enforcement, so one forgotten scope is a cross-tenant leak. Regression tests cover the export and dashboard, not future code.
+- **Auth is a demo stand-in** (pick an admin, no password); no rate limiting, no audit trail of who exported what beyond the summary log line.
+- **Streaming export:** the costs listed in Task 1 (thread and connection held, truncated 200 on mid-stream failure, no row cap, browser-memory bound). Ceiling not measured.
+- **Dashboard:** `OFFSET` pagination gets slower on very deep pages; the status count still reads every row of the company (about 25-60 ms at 100k). Measurements are development mode on one machine.
+- **Score** is computed on the fly and cannot be sorted, filtered or averaged across all rows.
+- **Task 3 is design only.** No step was executed against a shared or production database; the Heroku command details marked **[unverified]** must be settled in the rehearsal. `db/schema.rb` deliberately has no status CHECK line so a fresh clone can seed legacy-looking data; the constraint exists only where the migrations are run.
+- **Tests:** Rails tests cover models, controllers and the regression cases listed above. There are no automated tests for the TypeScript, and no load tests.
+- **Seed data** is set-based fake data and is not a realistic distribution.
+
+**Next steps, in order of value:**
+1. **Async export** when the Task 1 trigger fires (job writes the file, expiring storage, notify or poll).
+2. **Persist the score** (a column filled on write, backfilled in batches) when sorting, filtering or averaging by score across all rows is needed; that also allows a company average back on the dashboard.
+3. **Postgres row-level security** as a second tenancy layer behind the application scopes.
+4. **Real authentication** replacing the pick-an-admin login.
+5. **Drop `legacy_status`** (release step 11) after the backfill, constraint and a bake period, once the undo is no longer needed.
