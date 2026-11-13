@@ -1,2 +1,16 @@
 <h1><%= current_company.name %> dashboard</h1>
 <%= button_to "Log out", session_path, method: :delete %>
+<p><%= link_to "Export CSV", export_path(company_id: current_company.id) %></p>
+<form method="get">
+  <input name="status" placeholder="status" value="<%= params[:status] %>">
+  <input type="date" name="from" value="<%= params[:from] %>">
+  <input type="date" name="to" value="<%= params[:to] %>">
+  <button>Filter</button>
+</form>
+<p>Total <%= @all.size %> · Completed <%= @completed %> · Pending <%= @pending %> · Average score <%= @average %></p>
+<table>
+  <tr><th>Employee</th><th>Status</th><th>Score</th><th>Created</th></tr>
+  <% @all.each do |a| %>
+    <tr><td><%= a.employee.name %></td><td><%= a.status %></td><td><%= a.score %></td><td><%= a.created_at.to_date %></td></tr>
+  <% end %>
+</table>
