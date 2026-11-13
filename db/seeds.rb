@@ -70,7 +70,8 @@ ActiveRecord::Base.transaction do
       ts, ts
     FROM plan p
     CROSS JOIN LATERAL generate_series(1, p.target) g
-    CROSS JOIN LATERAL (SELECT now() - (random() * 730) * interval '1 day' AS ts) t
+    -- g * 0 makes the subquery depend on the row, so random() runs per row (not hoisted once)
+    CROSS JOIN LATERAL (SELECT now() - (random() * 730 + g * 0) * interval '1 day' AS ts) t
     JOIN emp e ON e.company_id = p.id AND e.rn = g % e.n
   SQL
 
